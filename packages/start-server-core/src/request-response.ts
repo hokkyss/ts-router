@@ -63,7 +63,7 @@ type HeadersWithGetSetCookie = Headers & {
   getSetCookie?: () => Array<string>
 }
 
-type MaybePromise<T> = T | Promise<T>
+export type MaybePromise<T> = T | Promise<T>
 
 function isPromiseLike<T>(value: MaybePromise<T>): value is Promise<T> {
   return typeof (value as Promise<T>).then === 'function'

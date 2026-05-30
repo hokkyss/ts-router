@@ -25,7 +25,7 @@ import {
   getStartContext,
   runWithStartContext,
 } from '@tanstack/start-storage-context'
-import { requestHandler } from './request-response'
+import { requestHandler, type MaybePromise } from './request-response'
 import { getStartManifest } from './router-manifest'
 import { handleServerAction } from './server-functions-handler'
 import { createEarlyHintsCollector } from './early-hints'
@@ -67,6 +67,25 @@ type AnyMiddlewareServerFn =
 
 export interface CreateStartHandlerOptions extends FinalManifestOptions {
   handler: HandlerCallback<AnyRouter>
+  /**
+   * Customize how Start respond to an uncaught error.
+   * 
+   * @example
+   * ```ts
+   * import { createStartHandler } from "@tanstack/start-server-core";
+   *
+   * export const startHandler = createStartHandler({
+   *   handler,
+   *   onUncaughtError: (err, request) => {
+   *     if (err instanceof Error) {
+   *       return new Response(err.message, { status: 500 });
+   *     }
+   *     return new Response('Something went wrong!', { status: 500 })
+   *   }
+   * })
+   * ```
+   */
+  onUncaughtError?: (err: unknown, request: Request) => MaybePromise<Response>
 }
 
 function getStartResponseHeaders(opts: { router: AnyRouter }) {
@@ -373,6 +392,19 @@ function handlerToMiddleware(
  *   },
  * })
  * ```
+ * 
+ * @example With uncaught error handling:
+ * ```ts
+ * export const startHandler = createStartHandler({
+ *   handler: defaultStreamHandler,
+ *   onUncaughtError: (err, request) => {
+ *     if (err instanceof Error) {
+ *       return new Response({ message: err.message }, { status: 500 });
+ *     }
+ *     return new Response({ message: 'Something went wrong!' }, { status: 500 });
+ *   }
+ * })
+ * ```
  */
 export function createStartHandler<TRegister = Register>(
   cbOrOptions: HandlerCallback<AnyRouter> | CreateStartHandlerOptions,
@@ -381,6 +413,7 @@ export function createStartHandler<TRegister = Register>(
     typeof cbOrOptions === 'function' ? {} : cbOrOptions
   const cb: HandlerCallback<AnyRouter> =
     typeof cbOrOptions === 'function' ? cbOrOptions : cbOrOptions.handler
+  const onError = typeof cbOrOptions === "function" ? undefined : cbOrOptions.onUncaughtError;
   const finalManifestResolver = createFinalManifestResolver({
     ...handlerOptions,
     cacheCreateTransform: process.env.TSS_DEV_SERVER !== 'true',
@@ -662,6 +695,11 @@ export function createStartHandler<TRegister = Register>(
       )
       responseOwnsCleanup = response.serverSsrCleanup === 'stream'
       return response.response
+    } catch (err) {
+      if (onError) {
+        return onError(err, request);
+      }
+      throw err;
     } finally {
       if (router?.serverSsr && !responseOwnsCleanup) {
         // Clean up router SSR state if it was set up but won't be cleaned up by the callback
